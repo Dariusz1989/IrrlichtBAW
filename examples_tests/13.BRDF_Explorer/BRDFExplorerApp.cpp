@@ -393,32 +393,32 @@ BRDFExplorerApp::BRDFExplorerApp(IrrlichtDevice* device, irr::scene::ICameraScen
 {
     TextureSlotMap = {
         { ETEXTURE_SLOT::TEXTURE_AO,
-        std::make_tuple("AOTextureBuffer", // Texture buffer name
+        std::make_tuple("AOTextureBuffer", // Texture buffer name (cegui image name)
             "AOTexture", // Texture name
             "MaterialParamsWindow/AOWindow/ImageButton") },
 
         { ETEXTURE_SLOT::TEXTURE_BUMP,
-            std::make_tuple("BumpTextureBuffer", // Texture buffer name
+            std::make_tuple("BumpTextureBuffer", // Texture buffer name (cegui image name)
                 "BumpTexture", // Texture name
                 "MaterialParamsWindow/BumpWindow/ImageButton") },
 
         { ETEXTURE_SLOT::TEXTURE_SLOT_1,
-            std::make_tuple("T1TextureBuffer", // Texture buffer name
+            std::make_tuple("T1TextureBuffer", // Texture buffer name (cegui image name)
                 "T1Texture", // Texture name
                 "TextureViewWindow/Texture0Window/Texture") },
 
         { ETEXTURE_SLOT::TEXTURE_SLOT_2,
-            std::make_tuple("T2TextureBuffer", // Texture buffer name
+            std::make_tuple("T2TextureBuffer", // Texture buffer name (cegui image name)
                 "T2Texture", // Texture name
                 "TextureViewWindow/Texture1Window/Texture") },
 
         { ETEXTURE_SLOT::TEXTURE_SLOT_3,
-            std::make_tuple("T3TextureBuffer", // Texture buffer name
+            std::make_tuple("T3TextureBuffer", // Texture buffer name (cegui image name)
                 "T3Texture", // Texture name
                 "TextureViewWindow/Texture2Window/Texture") },
 
         { ETEXTURE_SLOT::TEXTURE_SLOT_4,
-            std::make_tuple("T4TextureBuffer", // Texture buffer name
+            std::make_tuple("T4TextureBuffer", // Texture buffer name (cegui image name)
                 "T4Texture", // Texture name
                 "TextureViewWindow/Texture3Window/Texture") },
     };
@@ -758,6 +758,7 @@ void BRDFExplorerApp::initDropdown()
                 ->setDisabled(list->getSelectedItem()->getText() != "Constant");
 
             GUIState.Albedo.SourceDropdown = getDropdownState(DROPDOWN_ALBEDO_NAME);
+            updateMaterial();
         });
 
     albedo_drop->setHorizontalAlignment(default_halignment);
@@ -776,6 +777,7 @@ void BRDFExplorerApp::initDropdown()
                 ->setDisabled(list->getSelectedItem()->getText() != "Constant");
 
             GUIState.Roughness.SourceDropdown = getDropdownState(DROPDOWN_ROUGHNESS_NAME);
+            updateMaterial();
         });
 
     roughness_drop->setHorizontalAlignment(default_halignment);
@@ -795,6 +797,7 @@ void BRDFExplorerApp::initDropdown()
                 ->setDisabled(list->getSelectedItem()->getText() != "Constant");
 
             GUIState.RefractionIndex.SourceDropdown = getDropdownState(DROPDOWN_RI_NAME);
+            updateMaterial();
         });
 
     ri_drop->setHorizontalAlignment(default_halignment);
@@ -814,6 +817,7 @@ void BRDFExplorerApp::initDropdown()
                 ->setDisabled(list->getSelectedItem()->getText() != "Constant");
 
             GUIState.Metallic.SourceDropdown = getDropdownState(DROPDOWN_METALLIC_NAME);
+            updateMaterial();
         });
 
     metallic_drop->setHorizontalAlignment(default_halignment);
@@ -875,6 +879,8 @@ void BRDFExplorerApp::renderMesh()
 
 void BRDFExplorerApp::loadTextureSlot(ETEXTURE_SLOT slot, irr::asset::ICPUTexture* _texture)
 {
+    // TODO remove this function
+
     auto tupl = TextureSlotMap[slot];
     auto root = GUI->getRootWindow();
     auto& renderer = GUI->getRenderer();
@@ -917,7 +923,14 @@ void BRDFExplorerApp::loadTextureSlot(ETEXTURE_SLOT slot, irr::video::IVirtualTe
     texSize.d_width = gputex->getSize()[0];
     texSize.d_height = gputex->getSize()[1];
 
-    Material.setTexture(slot-TEXTURE_SLOT_1, gputex);
+    //Material.setTexture(slot-TEXTURE_SLOT_1, gputex);
+    if (slot == TEXTURE_AO)
+        Textures.AO = gputex;
+    else if (slot == TEXTURE_BUMP)
+        Textures.BumpMap = gputex;
+    else if (slot >= TEXTURE_SLOT_1)
+        Textures.TextureViewer[slot-TEXTURE_SLOT_1] = gputex;
+    updateMaterial();
 
     ::CEGUI::Texture& ceguiTexture = !renderer.isTextureDefined(_texName)
         ? irrTex2ceguiTex(getTextureGLname(gputex), texSize, _texName, renderer)
@@ -969,7 +982,7 @@ void BRDFExplorerApp::loadMeshAndReplaceTextures(const std::string& _path)
 
     for (uint32_t t = 0u; t < 4u; ++t)
     {
-        if (Material.getTexture(t)==DefaultTexture && itsMaterial.getTexture(t))
+        if (Textures.TextureViewer[t]==DefaultTexture && itsMaterial.getTexture(t))
         {
             irr::video::IVirtualTexture* newtex = itsMaterial.getTexture(t);
             std::string texname = loadedMesh.cpu->getMeshBuffer(MESHBUFFER_NUM)->getMaterial().getTexture(t)->getCacheKey();
@@ -1045,7 +1058,8 @@ void BRDFExplorerApp::eventAOTextureBrowse(const ::CEGUI::EventArgs&)
             GUI->getRootWindow()->getChild("MaterialParamsWindow/AOWindow/Editbox"));
 
         irr::asset::ICPUTexture* cputexture = loadCPUTexture(p.second);
-        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_AO, cputexture);
+        auto gputexture = Driver->getGPUObjectsFromAssets(&cputexture, (&cputexture)+1).front();
+        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_AO, gputexture, cputexture->getCacheKey());
 
         box->setText(p.second);
         updateTooltip(
@@ -1063,7 +1077,8 @@ void BRDFExplorerApp::eventAOTextureBrowse_EditBox(const ::CEGUI::EventArgs&)
 
     if (ext::cegui::Exists(box->getText().c_str())) {
         irr::asset::ICPUTexture* cputexture = loadCPUTexture(box->getText());
-        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_AO, cputexture);
+        auto gputexture = Driver->getGPUObjectsFromAssets(&cputexture, (&cputexture)+1).front();
+        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_AO, gputexture, cputexture->getCacheKey());
 
         updateTooltip(
             "MaterialParamsWindow/AOWindow/ImageButton",
@@ -1086,7 +1101,8 @@ void BRDFExplorerApp::eventBumpTextureBrowse(const ::CEGUI::EventArgs&)
         auto box = static_cast<CEGUI::Editbox*>(
             GUI->getRootWindow()->getChild("MaterialParamsWindow/BumpWindow/Editbox"));
         irr::asset::ICPUTexture* cputexture = loadCPUTexture(p.second);
-        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_BUMP, cputexture);
+        auto gputexture = Driver->getGPUObjectsFromAssets(&cputexture, (&cputexture)+1).front();
+        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_BUMP, gputexture, cputexture->getCacheKey());
 
         box->setText(p.second);
         updateTooltip(
@@ -1104,7 +1120,8 @@ void BRDFExplorerApp::eventBumpTextureBrowse_EditBox(const ::CEGUI::EventArgs&)
 
     if (ext::cegui::Exists(box->getText().c_str())) {
         irr::asset::ICPUTexture* cputexture = loadCPUTexture(box->getText());
-        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_BUMP, cputexture);
+        auto gputexture = Driver->getGPUObjectsFromAssets(&cputexture, (&cputexture)+1).front();
+        loadTextureSlot(ETEXTURE_SLOT::TEXTURE_BUMP, gputexture, cputexture->getCacheKey());
 
         updateTooltip(
             "MaterialParamsWindow/BumpWindow/ImageButton",
